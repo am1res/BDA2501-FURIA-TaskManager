@@ -2,8 +2,6 @@
  * ============================================================
  *  MEMBER 3 — edit.js
  *  Responsibility: Edit task feature (modal + form + update)
- *  Branch: member3-edit
- *  Depends on: tasks.js, view.js (Members 1 & 2 must load first)
  * ============================================================
  */
 
@@ -29,6 +27,7 @@ function buildEditModal() {
         <div class="form-group">
           <label for="edit-title">Task title</label>
           <input id="edit-title" type="text" placeholder="Task title" autocomplete="off" />
+          <span class="field-error" id="edit-title-error"></span>
         </div>
         <div class="form-group">
           <label for="edit-desc">Description</label>
@@ -38,17 +37,17 @@ function buildEditModal() {
           <div class="form-group">
             <label for="edit-priority">Priority</label>
             <select id="edit-priority">
-              <option>Low</option>
-              <option>Medium</option>
-              <option>High</option>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
             </select>
           </div>
           <div class="form-group">
             <label for="edit-status">Status</label>
             <select id="edit-status">
-              <option>Pending</option>
-              <option>In Progress</option>
-              <option>Done</option>
+              <option value="To Do">To Do</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Done">Done</option>
             </select>
           </div>
         </div>
@@ -81,20 +80,33 @@ function buildEditModal() {
 function openEditModal(taskId) {
   buildEditModal();
 
-  const task = window.taskStore.getById(taskId);
-  if (!task) { window.showToast("Task not found."); return; }
+  const task = window.taskStore ? window.taskStore.getById(taskId) : null;
+  if (!task) {
+    if (typeof window.showToast === 'function') window.showToast("Task not found.");
+    return;
+  }
 
   document.getElementById("edit-task-id").value  = task.id;
-  document.getElementById("edit-title").value     = task.title;
-  document.getElementById("edit-desc").value      = task.description;
-  document.getElementById("edit-priority").value  = task.priority;
-  document.getElementById("edit-status").value    = task.status;
-  document.getElementById("edit-due").value       = task.dueDate;
+  document.getElementById("edit-title").value     = task.title || "";
+  document.getElementById("edit-desc").value      = task.description || "";
+  document.getElementById("edit-due").value       = task.dueDate || "";
+
+  // Set priority select — match exact value
+  const priorityEl = document.getElementById("edit-priority");
+  priorityEl.value = task.priority || "Medium";
+  if (!priorityEl.value) priorityEl.selectedIndex = 1; // fallback Medium
+
+  // Set status select — normalize legacy "Pending" → "To Do"
+  const statusEl = document.getElementById("edit-status");
+  const normalizedStatus = (task.status === "Pending") ? "To Do" : (task.status || "To Do");
+  statusEl.value = normalizedStatus;
+  if (!statusEl.value) statusEl.selectedIndex = 0;
 
   const modal = document.getElementById("edit-modal");
   modal.hidden = false;
   document.getElementById("edit-title").focus();
 
+  // Replace form node to clear any old listeners
   const form = document.getElementById("edit-task-form");
   const freshForm = form.cloneNode(true);
   form.replaceWith(freshForm);
@@ -106,30 +118,44 @@ function openEditModal(taskId) {
 
 function handleEditSubmit(e) {
   e.preventDefault();
-  const form = e.currentTarget;
-  window.clearErrors(form);
 
   const id   = Number(document.getElementById("edit-task-id").value);
+  const title = document.getElementById("edit-title").value.trim();
+
+  // Simple title validation
+  const titleError = document.getElementById("edit-title-error");
+  if (!title) {
+    if (titleError) { titleError.textContent = "Title is required."; }
+    document.getElementById("edit-title").focus();
+    return;
+  }
+  if (titleError) titleError.textContent = "";
+
   const data = {
-    title:       document.getElementById("edit-title").value.trim(),
+    title,
     description: document.getElementById("edit-desc").value.trim(),
     priority:    document.getElementById("edit-priority").value,
     dueDate:     document.getElementById("edit-due").value,
     status:      document.getElementById("edit-status").value,
   };
 
-  const { status: _s, ...toValidate } = data;
-  const errors = window.validateTask(toValidate);
-  if (Object.keys(errors).length) {
-    Object.entries(errors).forEach(([field, msg]) => window.showError("edit-" + field, msg));
-    return;
+  // Update via taskStore if available, otherwise fall back to window.updateTask
+  if (window.taskStore && typeof window.taskStore.update === 'function') {
+    window.taskStore.update(id, data);
+  } else if (typeof window.updateTask === 'function') {
+    window.updateTask(id, data);
   }
 
-  window.taskStore.update(id, data);
   closeEditModal();
-  window.renderTaskList();
-  window.renderDashboard();
-  window.showToast(`Task "${data.title}" updated.`);
+
+  // Refresh all views
+  if (typeof window.refreshAll === 'function') window.refreshAll();
+  else {
+    if (typeof window.renderTaskList  === 'function') window.renderTaskList();
+    if (typeof window.renderDashboard === 'function') window.renderDashboard();
+  }
+
+  if (typeof window.showToast === 'function') window.showToast(`Task "${data.title}" updated.`);
 }
 
 function closeEditModal() {
